@@ -1,10 +1,11 @@
 
-#import "RCTBridge.h"
+#import <React/RCTBridge.h>
+#import <React/RCTImageSource.h>
 #import "GLTexture.h"
 
 @interface GLImage: NSObject
 
-@property (nonatomic, copy) NSString *src;
+@property (nonatomic, copy) RCTImageSource *source;
 @property (nonatomic) UIImage *image;
 
 

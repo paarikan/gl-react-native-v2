@@ -1,10 +1,10 @@
+#import <React/RCTUIManager.h>
+#import <React/RCTLog.h>
+#import <UIKit/UIKit.h>
 #import "GLCanvasManager.h"
 #import "GLCanvas.h"
 #import "RCTConvert+GLData.h"
 #import "RCTConvert+CaptureConfig.h"
-#import "RCTUIManager.h"
-#import "RCTLog.h"
-#import <UIKit/UIKit.h>
 
 @implementation GLCanvasManager
 
@@ -24,8 +24,8 @@ RCT_EXPORT_MODULE();
 }
 
 RCT_EXPORT_VIEW_PROPERTY(nbContentTextures, NSNumber);
-RCT_EXPORT_VIEW_PROPERTY(opaque, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(autoRedraw, BOOL);
+RCT_EXPORT_VIEW_PROPERTY(preserveImages, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(data, GLData);
 RCT_EXPORT_VIEW_PROPERTY(renderId, NSNumber);
 RCT_EXPORT_VIEW_PROPERTY(pixelRatio, NSNumber);
@@ -53,7 +53,7 @@ RCT_EXPORT_METHOD(capture: (nonnull NSNumber *)reactTag withConfig:(id)config)
   GLCanvas * v;
   v = [[GLCanvas alloc] initWithBridge:self.bridge];
   return v;
-  
+
 }
 
 @end

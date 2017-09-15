@@ -13,7 +13,7 @@ import com.facebook.react.common.MapBuilder;
 import com.facebook.react.uimanager.PointerEvents;
 import com.facebook.react.uimanager.SimpleViewManager;
 import com.facebook.react.uimanager.ThemedReactContext;
-import com.facebook.react.uimanager.ReactProp;
+import com.facebook.react.uimanager.annotations.ReactProp;
 
 import java.util.Locale;
 import java.util.Map;
@@ -42,14 +42,24 @@ public class GLCanvasManager extends SimpleViewManager<GLCanvas> {
         view.setRenderId(renderId);
     }
 
-    @ReactProp(name="opaque")
-    public void setOpaque (GLCanvas view, boolean opaque) {
-        view.setOpaque(opaque);
-    }
-
     @ReactProp(name = "autoRedraw")
     public void setAutoRedraw (GLCanvas view, boolean autoRedraw) {
         view.setAutoRedraw(autoRedraw);
+    }
+
+    @ReactProp(name = "overlay")
+    public void setZOrderMediaOverlay(GLCanvas view, boolean overlay) {
+        view.setZOrderMediaOverlay(overlay);
+    }
+
+    @ReactProp(name = "setZOrderOnTop")
+    public void setZOrderOnTop (GLCanvas view, boolean setZOrderOnTop) {
+        view.setZOrderOnTop(setZOrderOnTop);
+    }
+
+    @ReactProp(name = "backgroundColor")
+    public void setBackgroundColor (GLCanvas view, Integer color) {
+        view.setBackgroundColor(color);
     }
 
     @ReactProp(name = "pointerEvents")

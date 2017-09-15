@@ -1,9 +1,10 @@
 
+#import <React/RCTBridge.h>
+#import <React/RCTImageLoader.h>
+#import <React/RCTLog.h>
+#import <React/RCTUtils.h>
 #import "GLImage.h"
 #import "GLImageData.h"
-#import "RCTBridge.h"
-#import "RCTImageLoader.h"
-#import "RCTLog.h"
 #import "GLTexture.h"
 
 @implementation GLImage
@@ -60,49 +61,59 @@ RCT_NOT_IMPLEMENTED(-init)
   return _texture;
 }
 
-- (void)setSrc:(NSString *)src
+- (void)setSource:(RCTImageSource *)source
 {
-  if (![src isEqualToString:_src]) {
-    _src = [src copy];
+  if (![source isEqual:_source]) {
+    _source = source;
     [self reloadImage];
   }
 }
 
 - (void)reloadImage
 {
+  RCTImageSource *source = _source;
   if (_loading) _loading();
   _loading = nil;
-  if (!_src) {
+  if (!source) {
     [self clearImage];
-  } else {
-
+  }
+  else {
     // Load the image (without resizing it)
-
-    if (![_src hasPrefix:@"http://"] && ![_src hasPrefix:@"https://"]) {
-      self.image = [UIImage imageNamed:_src];
-      dispatch_async(dispatch_get_main_queue(), ^{
-        if (_onload) _onload();
-      });
-    } else {
-      _loading = [_bridge.imageLoader loadImageWithTag:_src
+    __weak GLImage *weakSelf = self;
+    _loading = [_bridge.imageLoader loadImageWithURLRequest:source.request
                                        size:CGSizeZero
                                       scale:0
-                                 resizeMode:UIViewContentModeScaleToFill
+                                      clipped:YES
+                                 resizeMode:RCTResizeModeStretch
                               progressBlock:nil
-                            completionBlock:^(NSError *error, UIImage *image) {
+                              partialLoadBlock:nil
+                            completionBlock:^(NSError *error, UIImage *loadedImage) {
+                              GLImage *strongSelf = weakSelf;
+                              void (^setImageBlock)(UIImage *) = ^(UIImage *image) {
+                                if (![source isEqual:strongSelf.source]) {
+                                  // Bail out if source has changed since we started loading
+                                  return;
+                                }
+                                strongSelf.image = [UIImage imageWithCGImage:image.CGImage];
+                                dispatch_async(dispatch_get_main_queue(), ^{
+                                  if (_onload) _onload();
+                                });
+                              };
+
                               _loading = nil;
                               [self clearImage];
                               if (error) {
                                 NSLog(@"Image failed to load: %@", error);
                               } else {
-                                // we need to copy the image because it seems the image will be altered.
-                                self.image = [UIImage imageWithCGImage:image.CGImage];
-                                dispatch_async(dispatch_get_main_queue(), ^{
-                                  if (_onload) _onload();
-                                });
+                                if ([NSThread isMainThread]) {
+                                  setImageBlock(loadedImage);
+                                } else {
+                                  RCTExecuteOnMainQueue(^{
+                                    setImageBlock(loadedImage);
+                                  });
+                                }
                               }
                             }];
-    }
   }
 }
 

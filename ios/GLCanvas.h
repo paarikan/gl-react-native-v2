@@ -1,15 +1,15 @@
 #import <GLKit/GLKit.h>
+#import <React/RCTComponent.h>
 #import "GLData.h"
 #import "CaptureConfig.h"
-#import "RCTComponent.h"
 
 @interface GLCanvas: GLKView
 
 @property (nonatomic) GLData *data;
-@property (nonatomic) BOOL opaque;
 @property (nonatomic) BOOL autoRedraw;
 @property (nonatomic) BOOL eventsThrough;
 @property (nonatomic) BOOL visibleContent;
+@property (nonatomic) BOOL preserveImages;
 @property (nonatomic) NSNumber *nbContentTextures;
 @property (nonatomic) NSNumber *renderId;
 @property (nonatomic) NSNumber *pixelRatio;

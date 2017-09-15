@@ -1,11 +1,7 @@
-const invariant = require("invariant");
-const React = require("react-native");
-const {
-  Component,
-  requireNativeComponent
-} = React;
-const defer = require("promise-defer");
-const captureFrame = require("./GLCanvas.captureFrame");
+import invariant from "invariant";
+import React, {Component} from "react";
+import {requireNativeComponent, findNodeHandle, processColor} from "react-native";
+import captureFrame from "./GLCanvas.captureFrame";
 
 const serializeOption = config =>
 config.format + ":" + config.type + ":" + config.quality;
@@ -19,6 +15,10 @@ const GLCanvasNative = requireNativeComponent("GLCanvas", GLCanvas, {
 });
 
 class GLCanvas extends Component {
+
+  viewConfig = {
+    uiViewClassName: "GLCanvas"
+  };
 
   componentWillMount () {
     this._pendingCaptureFrame = {};
@@ -37,9 +37,19 @@ class GLCanvas extends Component {
   _addPendingCaptureFrame (config) {
     const key = serializeOption(config);
     return this._pendingCaptureFrame[key] || (
-      (captureFrame(React.findNodeHandle(this.refs.native), config),
-      this._pendingCaptureFrame[key] = defer())
+      (captureFrame(findNodeHandle(this.refs.native), config),
+      this._pendingCaptureFrame[key] = this._makeDeferred())
     );
+  }
+
+  _makeDeferred() {
+    var defer = {};
+    var p = new Promise(function(resolve, reject) {
+      defer.resolve = resolve;
+      defer.reject = reject;
+    });
+    defer.promise = p;
+    return defer;
   }
 
   captureFrame (configArg) {
@@ -103,15 +113,21 @@ class GLCanvas extends Component {
   };
 
   render () {
-    const { width, height, onLoad, onProgress, eventsThrough, ...restProps } = this.props;
+    const {
+      width, height, style,
+      onLoad, onProgress, eventsThrough,
+      ...restProps } = this.props;
+    const { backgroundColor } = style;
+
     return <GLCanvasNative
       ref="native"
       {...restProps}
+      backgroundColor={processColor(backgroundColor)}
+      style={{ width, height }}
       onGLLoad={onLoad ? onLoad : null}
       onGLProgress={onProgress ? onProgress : null}
       onGLCaptureFrame={this.onGLCaptureFrame}
       pointerEvents={eventsThrough ? "none" : "auto"}
-      style={{ width, height }}
     />;
   }
 }

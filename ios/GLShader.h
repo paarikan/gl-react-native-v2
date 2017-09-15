@@ -1,5 +1,5 @@
 #import <GLKit/GLKit.h>
-#import "RCTBridgeModule.h"
+#import <React/RCTBridgeModule.h>
 
 NS_ENUM(NSInteger) {
     GLContextFailure = 87001,
@@ -10,9 +10,11 @@ NS_ENUM(NSInteger) {
 
 @interface GLShader: NSObject
 
+@property NSString *name;
 @property EAGLContext *context;
 @property NSString *vert;
 @property NSString *frag;
+@property NSArray *uniformNames;
 @property NSDictionary *uniformTypes;
 
 /**

@@ -1,6 +1,6 @@
 #import "GLFBO.h"
 #import "GLTexture.h"
-#import "RCTLog.h"
+#import <React/RCTLog.h>
 
 @interface FBOState: NSObject
 
@@ -46,17 +46,6 @@ GLTexture *initTexture (float width, float height, GLuint attachment)
   glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, texture.handle, 0);
   return texture;
 }
-
-GLuint initRenderBuffer (float width, float height, GLuint component, GLuint attachment)
-{
-  GLuint handle;
-  glGenRenderbuffers(1, &handle);
-  glBindRenderbuffer(GL_RENDERBUFFER, handle);
-  glRenderbufferStorage(GL_RENDERBUFFER, component, width, height);
-  glFramebufferRenderbuffer(GL_FRAMEBUFFER, attachment, GL_RENDERBUFFER, handle);
-  return handle;
-}
-
 
 @implementation GLFBO
 {

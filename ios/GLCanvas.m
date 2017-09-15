@@ -1,9 +1,10 @@
-#import "RCTBridge.h"
-#import "RCTUtils.h"
-#import "RCTConvert.h"
-#import "RCTEventDispatcher.h"
-#import "RCTLog.h"
-#import "RCTProfile.h"
+#import <React/RCTBridge.h>
+#import <React/RCTUtils.h>
+#import <React/RCTConvert.h>
+#import <React/RCTEventDispatcher.h>
+#import <React/RCTLog.h>
+#import <React/RCTProfile.h>
+#import <React/RCTImageSource.h>
 #import "RNGLContext.h"
 #import "GLCanvas.h"
 #import "GLShader.h"
@@ -12,17 +13,8 @@
 #import "GLRenderData.h"
 #import "UIView+React.h"
 
-NSString* srcResource (id res)
-{
-  NSString *src;
-  if ([res isKindOfClass:[NSString class]]) {
-    src = [RCTConvert NSString:res];
-  } else {
-    BOOL isStatic = [RCTConvert BOOL:res[@"isStatic"]];
-    src = [RCTConvert NSString:res[@"path"]];
-    if (!src || isStatic) src = [RCTConvert NSString:res[@"uri"]];
-  }
-  return src;
+NSString* imageSourceHash (RCTImageSource *is) {
+  return is.request.URL;
 }
 
 NSArray* diff (NSArray* a, NSArray* b) {
@@ -46,8 +38,6 @@ NSArray* diff (NSArray* a, NSArray* b) {
   NSArray *_rasterizedContent;
   NSArray *_contentTextures;
   NSDictionary *_images; // This caches the currently used images (imageSrc -> GLReactImage)
-
-  BOOL _opaque; // opaque prop (if false, the GLCanvas will become transparent)
 
   BOOL _deferredRendering; // This flag indicates a render has been deferred to the next frame (when using contents)
 
@@ -117,12 +107,6 @@ RCT_NOT_IMPLEMENTED(-init)
   [self requestSyncData];
 }
 
-- (void)setOpaque:(BOOL)opaque
-{
-  _opaque = opaque;
-  [self setNeedsDisplay];
-}
-
 - (void)setRenderId:(NSNumber *)renderId
 {
   if ([_nbContentTextures intValue] > 0) {
@@ -180,6 +164,12 @@ RCT_NOT_IMPLEMENTED(-init)
   _nbContentTextures = nbContentTextures;
 }
 
+- (void)setBackgroundColor:(UIColor *)backgroundColor
+{
+  CGFloat alpha = CGColorGetAlpha(backgroundColor.CGColor);
+  self.opaque = (alpha == 1.0);
+}
+
 //// Sync methods (called from props setters)
 
 - (void)requestSyncData
@@ -193,7 +183,10 @@ RCT_NOT_IMPLEMENTED(-init)
   @autoreleasepool {
 
     NSDictionary *prevImages = _images;
-    NSMutableDictionary *images = [[NSMutableDictionary alloc] init];
+    NSMutableDictionary *images =
+      self.preserveImages
+      ? _images.mutableCopy
+      : [[NSMutableDictionary alloc] init];
 
     GLRenderData * (^traverseTree) (GLData *data);
     __block __weak GLRenderData * (^weak_traverseTree)(GLData *data);
@@ -237,6 +230,9 @@ RCT_NOT_IMPLEMENTED(-init)
             [emptyTexture setPixels:nil];
             textures[uniformName] = emptyTexture;
           }
+          else if ([value isKindOfClass:[NSNumber class]]) {
+            RCTLogError(@"texture uniform '%@': you cannot directly give require('./img.png') to gl-react, use resolveAssetSource(require('./img.png')) instead.", uniformName);
+          }
           else {
             NSString *type = [RCTConvert NSString:value[@"type"]];
             if ([type isEqualToString:@"content"]) {
@@ -252,26 +248,30 @@ RCT_NOT_IMPLEMENTED(-init)
               textures[uniformName] = fbo.color[0];
             }
             else if ([type isEqualToString:@"uri"]) {
-              NSString *src = srcResource(value);
+              RCTImageSource *src = [RCTConvert RCTImageSource:value];
               if (!src) {
-                RCTLogError(@"texture uniform '%@': Invalid uri format '%@'", uniformName, value);
+                GLTexture *emptyTexture = [[GLTexture alloc] init];
+                [emptyTexture setPixels:nil];
+                textures[uniformName] = emptyTexture;
               }
-
-              GLImage *image = images[src];
-              if (image == nil) {
-                image = prevImages[src];
-                if (image != nil)
-                  images[src] = image;
+              else {
+                NSString *key = imageSourceHash(src);
+                GLImage *image = images[key];
+                if (image == nil) {
+                  image = prevImages[key];
+                  if (image != nil)
+                    images[key] = image;
+                }
+                if (image == nil) {
+                  __weak GLCanvas *weakSelf = self;
+                  image = [[GLImage alloc] initWithBridge:_bridge withOnLoad:^{
+                    if (weakSelf) [weakSelf onImageLoad:src];
+                  }];
+                  image.source = src;
+                  images[key] = image;
+                }
+                textures[uniformName] = [image getTexture];
               }
-              if (image == nil) {
-                __weak GLCanvas *weakSelf = self;
-                image = [[GLImage alloc] initWithBridge:_bridge withOnLoad:^{
-                  if (weakSelf) [weakSelf onImageLoad:src];
-                }];
-                image.src = src;
-                images[src] = image;
-              }
-              textures[uniformName] = [image getTexture];
             }
             else {
               RCTLogError(@"texture uniform '%@': Unexpected type '%@'", uniformName, type);
@@ -289,7 +289,7 @@ RCT_NOT_IMPLEMENTED(-init)
         RCTLogError(@"Maximum number of texture reach. got %i >= max %i", units, maxTextureUnits);
       }
 
-      for (NSString *uniformName in shader.uniformTypes) {
+      for (NSString *uniformName in shader.uniformNames) {
         if (uniforms[uniformName] == nil) {
           RCTLogError(@"All defined uniforms must be provided. Missing '%@'", uniformName);
         }
@@ -346,7 +346,7 @@ RCT_NOT_IMPLEMENTED(-init)
   }
   _rasterizedContent = rasterizedContent;
   [self setNeedsDisplay];
-  RCT_PROFILE_END_EVENT(0, @"gl", nil);
+  RCT_PROFILE_END_EVENT(0, @"gl");
 }
 
 - (void)syncContentTextures
@@ -383,7 +383,7 @@ RCT_NOT_IMPLEMENTED(-init)
 - (BOOL)haveRemainingToPreload
 {
   for (id res in _imagesToPreload) {
-    if (![_preloaded containsObject:srcResource(res)]) {
+    if (![_preloaded containsObject:imageSourceHash([RCTConvert RCTImageSource:res])]) {
       return true;
     }
   }
@@ -406,8 +406,6 @@ RCT_NOT_IMPLEMENTED(-init)
 
 - (void)drawRect:(CGRect)rect
 {
-  self.layer.opaque = _opaque;
-
   if (_neverRendered) {
     _neverRendered = false;
     glClearColor(0.0, 0.0, 0.0, 0.0);
@@ -518,23 +516,26 @@ RCT_NOT_IMPLEMENTED(-init)
       for (GLRenderData *child in renderData.children)
         weak_recDraw(child);
 
-      RCT_PROFILE_BEGIN_EVENT(0, @"node", nil);
+      NSString *nodeName = [NSString stringWithFormat:@"node:%@", renderData.shader.name];
+      RCT_PROFILE_BEGIN_EVENT(0, nodeName, nil);
 
       RCT_PROFILE_BEGIN_EVENT(0, @"bind fbo", nil);
       if (renderData.fboId == -1) {
         glBindFramebuffer(GL_FRAMEBUFFER, defaultFBO);
         glViewport(0, 0, w, h);
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
       }
       else {
         GLFBO *fbo = [_bridge.rnglContext getFBO:[NSNumber numberWithInt:renderData.fboId]];
         [fbo setShapeWithWidth:w withHeight:h];
         [fbo bind];
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       }
-      RCT_PROFILE_END_EVENT(0, @"gl", nil);
+      RCT_PROFILE_END_EVENT(0, @"gl");
 
       RCT_PROFILE_BEGIN_EVENT(0, @"bind shader", nil);
       [renderData.shader bind];
-      RCT_PROFILE_END_EVENT(0, @"gl", nil);
+      RCT_PROFILE_END_EVENT(0, @"gl");
 
       RCT_PROFILE_BEGIN_EVENT(0, @"bind textures", nil);
       for (NSString *uniformName in renderData.textures) {
@@ -542,22 +543,21 @@ RCT_NOT_IMPLEMENTED(-init)
         int unit = [((NSNumber *)renderData.uniforms[uniformName]) intValue];
         [texture bind:unit];
       }
-      RCT_PROFILE_END_EVENT(0, @"gl", nil);
+      RCT_PROFILE_END_EVENT(0, @"gl");
 
       RCT_PROFILE_BEGIN_EVENT(0, @"bind set uniforms", nil);
       for (NSString *uniformName in renderData.uniforms) {
         [renderData.shader setUniform:uniformName withValue:renderData.uniforms[uniformName]];
       }
-      RCT_PROFILE_END_EVENT(0, @"gl", nil);
+      RCT_PROFILE_END_EVENT(0, @"gl");
 
       RCT_PROFILE_BEGIN_EVENT(0, @"draw", nil);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       glClearColor(0.0, 0.0, 0.0, 0.0);
       glClear(GL_COLOR_BUFFER_BIT);
-      glDrawArrays(GL_TRIANGLES, 0, 6);
-      RCT_PROFILE_END_EVENT(0, @"gl", nil);
+      glDrawArrays(GL_TRIANGLES, 0, 3);
+      RCT_PROFILE_END_EVENT(0, @"gl");
 
-      RCT_PROFILE_END_EVENT(0, @"gl", nil);
+      RCT_PROFILE_END_EVENT(0, @"gl");
     };
 
     // DRAWING THE SCENE
@@ -577,14 +577,14 @@ RCT_NOT_IMPLEMENTED(-init)
     }
   }
 
-  RCT_PROFILE_END_EVENT(0, @"gl", nil);
+  RCT_PROFILE_END_EVENT(0, @"gl");
 }
 
 //// utility methods
 
-- (void)onImageLoad:(NSString *)loaded
+- (void)onImageLoad:(RCTImageSource *)source
 {
-  [_preloaded addObject:loaded];
+  [_preloaded addObject:imageSourceHash(source)];
   int count = [self countPreloaded];
   int total = (int) [_imagesToPreload count];
   double progress = ((double) count) / ((double) total);
@@ -597,7 +597,7 @@ RCT_NOT_IMPLEMENTED(-init)
 {
   int nb = 0;
   for (id toload in _imagesToPreload) {
-    if ([_preloaded containsObject:srcResource(toload)])
+    if ([_preloaded containsObject:imageSourceHash([RCTConvert RCTImageSource:toload])])
       nb++;
   }
   return nb;
