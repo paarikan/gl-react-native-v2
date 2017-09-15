@@ -35,7 +35,7 @@ NSArray* diff (NSArray* a, NSArray* b) {
 
   GLRenderData *_renderData;
 
-  NSArray *_contentData;
+  NSArray *_rasterizedContent;
   NSArray *_contentTextures;
   NSDictionary *_images; // This caches the currently used images (imageSrc -> GLReactImage)
 
@@ -78,7 +78,7 @@ RCT_NOT_IMPLEMENTED(-init)
   _images = nil;
   _preloaded = nil;
   _captureConfigs = nil;
-  _contentData = nil;
+  _rasterizedContent = nil;
   _contentTextures = nil;
   _data = nil;
   _renderData = nil;
@@ -321,10 +321,10 @@ RCT_NOT_IMPLEMENTED(-init)
   }
 }
 
-- (void)syncContentData
+- (void)rasterizeContent
 {
-  RCT_PROFILE_BEGIN_EVENT(0, @"GLCanvas syncContentData", nil);
-  NSMutableArray *contentData = [[NSMutableArray alloc] init];
+  RCT_PROFILE_BEGIN_EVENT(0, @"GLCanvas rasterizeContent", nil);
+  NSMutableArray *rasterizedContent = [[NSMutableArray alloc] init];
   int nb = [_nbContentTextures intValue];
   for (int i = 0; i < nb; i++) {
     UIView *view = self.superview.subviews[i]; // We take siblings by index (closely related to the JS code)
@@ -333,24 +333,51 @@ RCT_NOT_IMPLEMENTED(-init)
       UIView *v = [view.subviews count] == 1 ?
       view.subviews[0] :
       view;
-      imgData = [GLImageData genPixelsWithView:v withPixelRatio:self.contentScaleFactor];
-    } else {
-      imgData = nil;
+      
+      SEL selector = NSSelectorFromString(@"getPixelBuffer");
+      if ([v respondsToSelector:selector]) {
+        // will do in syncContentTextures at draw() time
+      }
+      else {
+        imgData = [GLImageData genPixelsWithView:v withPixelRatio:self.contentScaleFactor];
+      }
     }
-    if (imgData) contentData[i] = imgData;
+    rasterizedContent[i] = imgData==nil ? [GLImageData empty] : imgData;
   }
-  _contentData = contentData;
+  _rasterizedContent = rasterizedContent;
   [self setNeedsDisplay];
   RCT_PROFILE_END_EVENT(0, @"gl");
 }
 
-
 - (void)syncContentTextures
 {
-  unsigned long max = MIN([_contentData count], [_contentTextures count]);
-  for (int i=0; i<max; i++) {
-    [_contentTextures[i] setPixels:_contentData[i]];
+  RCT_PROFILE_BEGIN_EVENT(0, @"GLCanvas syncContentTextures", nil);
+  unsigned long max = MIN([_nbContentTextures intValue], [_contentTextures count]);
+
+  for (int i = 0; i < max; i++) {
+    UIView *view = self.superview.subviews[i]; // We take siblings by index (closely related to the JS code)
+    if (view) {
+      UIView *v = [view.subviews count] == 1 ?
+      view.subviews[0] :
+      view;
+      
+      SEL selector = NSSelectorFromString(@"getPixelBuffer");
+      if ([v respondsToSelector:selector]) {
+        NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:
+                                    [[v class] instanceMethodSignatureForSelector:selector]];
+        [invocation setSelector:selector];
+        [invocation setTarget:v];
+        [invocation invoke];
+        CVPixelBufferRef buffer;
+        [invocation getReturnValue:&buffer];
+        [_contentTextures[i] setPixelsWithPixelBuffer:buffer];
+      }
+      else {
+        [_contentTextures[i] setPixels:_rasterizedContent[i]];
+      }
+    }
   }
+  RCT_PROFILE_END_EVENT(0, @"gl", nil);
 }
 
 - (BOOL)haveRemainingToPreload
@@ -372,7 +399,7 @@ RCT_NOT_IMPLEMENTED(-init)
     return;
   }
   if ([_nbContentTextures intValue] > 0) {
-    [self syncContentData];
+    [self rasterizeContent];
   }
   [self setNeedsDisplay];
 }
@@ -405,7 +432,7 @@ RCT_NOT_IMPLEMENTED(-init)
   BOOL needsDeferredRendering = [_nbContentTextures intValue] > 0 && !_autoRedraw;
   if (needsDeferredRendering && !_deferredRendering) {
     _deferredRendering = true;
-    [self performSelectorOnMainThread:@selector(syncContentData) withObject:nil waitUntilDone:NO];
+    [self performSelectorOnMainThread:@selector(rasterizeContent) withObject:nil waitUntilDone:NO];
   }
   else {
     _deferredRendering = false;
@@ -534,7 +561,7 @@ RCT_NOT_IMPLEMENTED(-init)
     };
 
     // DRAWING THE SCENE
-
+    
     [self syncContentTextures];
 
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &defaultFBO);
